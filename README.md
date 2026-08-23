@@ -131,6 +131,13 @@ make verify
 
 Please keep contributions focused, tested, respectful, and free of credentials or private machine data. Security issues should use [GitHub private vulnerability reporting](https://github.com/swissyai/tokoro/security/advisories/new), not a public issue.
 
+<details>
+<summary>Repository provenance</summary>
+
+Tokoro was developed privately before its first announced public alpha. Before publication, its Git history was filtered to remove internal planning material while retaining the source-code commit sequence, authorship, messages, and original development timestamps. Public release artifacts are built from tagged source.
+
+</details>
+
 ## License and identity
 
 Code is available under `MIT OR Apache-2.0`; the complete license texts are included in this repository. The Tokoro name, wordmark, Threshold mark, and official visual identity are reserved. Forks may use the code under its license but should not imply official endorsement.
