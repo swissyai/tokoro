@@ -1,10 +1,11 @@
 use super::{
     benchmark_recipes, bloat, commands, connection_model_choices, connection_port, device, eval,
     expand_home, handoff, harness_snippets, huggingface, load_config, monitoring, platform,
-    public_model_id, report, save_config, App, Binding, Config,
+    public_model_id, report, save_config, visualization, App, Binding, Config,
 };
 use std::{
     fs,
+    io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
 };
 
@@ -53,6 +54,10 @@ pub(crate) fn run_if_requested() -> Result<bool, String> {
         }
         "config" => {
             run_config(&args[1..])?;
+            Ok(true)
+        }
+        "visualization" => {
+            run_visualization(&args[1..])?;
             Ok(true)
         }
         "budget" => {
@@ -109,6 +114,12 @@ Agent-native interface:
   tokoro config set density compact|standard|expanded
   tokoro config set default-view home|measure|system|learn|setup|bloat
   tokoro config set onboarding.completed true|false
+  tokoro visualization list --json
+  tokoro visualization current --json
+  tokoro visualization schema --json
+  tokoro visualization validate PROFILE.toml --json
+  tokoro visualization preview NAME|PROFILE.toml [--json]
+  tokoro visualization apply NAME|PROFILE.toml [--confirm] [--replace] [--json]
   tokoro config set observability.focus balanced|latency|throughput|memory|speculation
   tokoro config set observability.history-samples 24..240
   tokoro config set observability.request-retention 8..128
@@ -694,10 +705,29 @@ fn run_config(args: &[String]) -> Result<(), String> {
     let mut cfg = load_config();
     match action {
         "show" => {
+            let visualization = match visualization::resolve(&cfg.visualization) {
+                Ok(profile) => serde_json::json!({
+                    "state": "valid",
+                    "profile": profile.name,
+                    "profile_schema": profile.schema,
+                    "layout": profile.layout,
+                    "graph_renderer": profile.graph_renderer,
+                    "panel_order": profile.panel_order,
+                    "palette": "separate",
+                }),
+                Err(error) => serde_json::json!({
+                    "state": "invalid",
+                    "profile": cfg.visualization.profile,
+                    "error": error,
+                    "fallback": "tokoro",
+                    "palette": "separate",
+                }),
+            };
             let payload = serde_json::json!({
                 "schema": AGENT_SCHEMA,
                 "kind": "configuration",
                 "theme": if cfg.theme.name.is_empty() { "auto" } else { &cfg.theme.name },
+                "visualization": visualization,
                 "layout": {
                     "density": cfg.layout.density,
                     "default_view": cfg.layout.default_view,
@@ -886,6 +916,295 @@ fn run_config(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         _ => Err("config needs show, set, or panel".into()),
+    }
+}
+
+fn visualization_value(
+    profile: &visualization::Profile,
+    source: &str,
+    active: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "name": profile.name,
+        "description": profile.description,
+        "source": source,
+        "active": active,
+        "profile_schema": profile.schema,
+        "density": profile.density,
+        "layout": profile.layout,
+        "graph_renderer": profile.graph_renderer,
+        "history_window": profile.history_window,
+        "panel_order": profile.panel_order,
+        "palette": "separate",
+    })
+}
+
+fn visualization_target(target: &str) -> Result<(visualization::Profile, bool), String> {
+    if let Some(profile) = visualization::builtin(target) {
+        Ok((profile, true))
+    } else {
+        visualization::load_path(Path::new(target)).map(|profile| (profile, false))
+    }
+}
+
+fn confirm_custom_visualization(profile: &visualization::Profile) -> Result<bool, String> {
+    if !io::stdin().is_terminal() {
+        return Err(format!(
+            "custom profile '{}' is valid but not applied; inspect the preview and rerun with --confirm",
+            profile.name
+        ));
+    }
+    eprint!(
+        "Apply custom profile '{}' locally? Palette remains unchanged. [y/N] ",
+        profile.name
+    );
+    io::stderr().flush().map_err(|error| error.to_string())?;
+    let mut answer = String::new();
+    io::stdin()
+        .read_line(&mut answer)
+        .map_err(|error| error.to_string())?;
+    Ok(matches!(
+        answer.trim().to_ascii_lowercase().as_str(),
+        "y" | "yes"
+    ))
+}
+
+fn run_visualization(args: &[String]) -> Result<(), String> {
+    let action = args.first().map(String::as_str).unwrap_or("list");
+    let json = args.iter().any(|arg| arg == "--json");
+    let mut cfg = load_config();
+    match action {
+        "list" => {
+            let active = cfg.visualization.profile.as_str();
+            let mut profiles = visualization::builtins()
+                .iter()
+                .map(|profile| {
+                    visualization_value(profile, "built_in_immutable", active == profile.name)
+                })
+                .collect::<Vec<_>>();
+            let custom = visualization::custom_entries()
+                .into_iter()
+                .map(|entry| match entry.profile {
+                    Some(profile) => visualization_value(
+                        &profile,
+                        "custom_local_toml",
+                        active == format!("custom:{}", profile.name),
+                    ),
+                    None => serde_json::json!({
+                        "source": "custom_local_toml",
+                        "file": entry.file,
+                        "state": "invalid",
+                        "error": entry.error,
+                        "active": cfg.visualization.custom_file == entry.file,
+                    }),
+                })
+                .collect::<Vec<_>>();
+            profiles.extend(custom);
+            if json {
+                print_json(serde_json::json!({
+                    "schema": AGENT_SCHEMA,
+                    "kind": "visualization_profiles",
+                    "profile_schema": visualization::PROFILE_SCHEMA,
+                    "profiles": profiles,
+                    "policy": {
+                        "palette": "separate",
+                        "builtins": "immutable",
+                        "custom": "versioned_local_toml",
+                        "plugins": "not_executable",
+                    },
+                }))
+            } else {
+                for profile in profiles {
+                    println!(
+                        "{}{} | {} | {} | {}",
+                        if profile["active"].as_bool() == Some(true) {
+                            "* "
+                        } else {
+                            "  "
+                        },
+                        profile["name"]
+                            .as_str()
+                            .or(profile["file"].as_str())
+                            .unwrap_or("invalid"),
+                        profile["source"].as_str().unwrap_or("unknown"),
+                        profile["layout"].as_str().unwrap_or("invalid"),
+                        profile["graph_renderer"].as_str().unwrap_or("invalid")
+                    );
+                }
+                Ok(())
+            }
+        }
+        "current" => match visualization::resolve(&cfg.visualization) {
+            Ok(profile) => {
+                let mut value = visualization_value(
+                    &profile,
+                    if cfg.visualization.profile.starts_with("custom:") {
+                        "custom_local_toml"
+                    } else {
+                        "built_in_immutable"
+                    },
+                    true,
+                );
+                value["effective"] = serde_json::json!({
+                    "density": cfg.layout.density,
+                    "history_window": cfg.observability.history_samples(),
+                    "hidden_panels": cfg.layout.hidden_panels,
+                });
+                if json {
+                    print_json(serde_json::json!({
+                        "schema": AGENT_SCHEMA,
+                        "kind": "visualization_profile",
+                        "state": "valid",
+                        "profile": value,
+                    }))
+                } else {
+                    print!("{}", visualization::preview(&profile));
+                    Ok(())
+                }
+            }
+            Err(error) => {
+                let payload = serde_json::json!({
+                    "schema": AGENT_SCHEMA,
+                    "kind": "visualization_profile",
+                    "state": "invalid",
+                    "selected": cfg.visualization.profile,
+                    "error": error,
+                    "fallback": "tokoro",
+                });
+                if json {
+                    print_json(payload)
+                } else {
+                    Err(payload["error"]
+                        .as_str()
+                        .unwrap_or("invalid profile")
+                        .into())
+                }
+            }
+        },
+        "schema" => {
+            if json {
+                print_json(serde_json::json!({
+                    "schema": AGENT_SCHEMA,
+                    "kind": "visualization_schema",
+                    "profile_schema": visualization::PROFILE_SCHEMA,
+                    "json_schema": visualization::schema_value(),
+                }))
+            } else {
+                println!(
+                    "{} | data-only TOML | use `tokoro visualization schema --json` for constraints",
+                    visualization::PROFILE_SCHEMA
+                );
+                Ok(())
+            }
+        }
+        "validate" => {
+            let path = args
+                .get(1)
+                .ok_or_else(|| "visualization validate needs a TOML path".to_string())?;
+            let profile = visualization::load_path(Path::new(path))?;
+            if json {
+                print_json(serde_json::json!({
+                    "schema": AGENT_SCHEMA,
+                    "kind": "visualization_validation",
+                    "state": "valid",
+                    "profile": visualization_value(&profile, "input_file", false),
+                    "applied": false,
+                }))
+            } else {
+                println!(
+                    "valid {} | {} | not applied",
+                    visualization::PROFILE_SCHEMA,
+                    profile.name
+                );
+                Ok(())
+            }
+        }
+        "preview" => {
+            let target = args.get(1).ok_or_else(|| {
+                "visualization preview needs a built-in name or TOML path".to_string()
+            })?;
+            let (profile, built_in) = visualization_target(target)?;
+            if json {
+                print_json(serde_json::json!({
+                    "schema": AGENT_SCHEMA,
+                    "kind": "visualization_preview",
+                    "profile": visualization_value(
+                        &profile,
+                        if built_in { "built_in_immutable" } else { "input_file" },
+                        false,
+                    ),
+                    "applied": false,
+                    "palette_change": false,
+                }))
+            } else {
+                print!("{}", visualization::preview(&profile));
+                Ok(())
+            }
+        }
+        "apply" => {
+            let target = args.get(1).ok_or_else(|| {
+                "visualization apply needs a built-in name or TOML path".to_string()
+            })?;
+            let (profile, built_in) = visualization_target(target)?;
+            if !built_in && visualization::builtin(&profile.name).is_some() {
+                return Err(format!(
+                    "custom profile '{}' conflicts with an immutable built-in",
+                    profile.name
+                ));
+            }
+            if !built_in && !args.iter().any(|arg| arg == "--confirm") {
+                if !json {
+                    print!("{}", visualization::preview(&profile));
+                }
+                if !confirm_custom_visualization(&profile)? {
+                    if json {
+                        return print_json(serde_json::json!({
+                            "schema": AGENT_SCHEMA,
+                            "kind": "visualization_application",
+                            "profile": profile.name,
+                            "applied": false,
+                        }));
+                    }
+                    println!("not applied");
+                    return Ok(());
+                }
+            }
+            if built_in {
+                cfg.visualization.profile = profile.name.clone();
+                cfg.visualization.custom_file.clear();
+            } else {
+                let file = visualization::install_custom(
+                    &profile,
+                    args.iter().any(|arg| arg == "--replace"),
+                )?;
+                cfg.visualization.profile = format!("custom:{}", profile.name);
+                cfg.visualization.custom_file = file;
+            }
+            cfg.layout.density = profile.density.clone();
+            cfg.observability.history_samples = profile.history_window;
+            save_config(&cfg)?;
+            if json {
+                print_json(serde_json::json!({
+                    "schema": AGENT_SCHEMA,
+                    "kind": "visualization_application",
+                    "profile": visualization_value(
+                        &profile,
+                        if built_in { "built_in_immutable" } else { "custom_local_toml" },
+                        true,
+                    ),
+                    "applied": true,
+                    "palette_change": false,
+                    "custody": "local_config_only",
+                }))
+            } else {
+                println!(
+                    "applied visualization '{}' | palette unchanged | local config only",
+                    profile.name
+                );
+                Ok(())
+            }
+        }
+        _ => Err("visualization needs list, current, schema, validate, preview, or apply".into()),
     }
 }
 

@@ -27,17 +27,24 @@ fn bar(frac: f64, w: usize) -> String {
     "#".repeat(n) + &"-".repeat(w.saturating_sub(n))
 }
 
-fn sparkline(values: &VecDeque<f64>, width: usize, scale: f64) -> String {
-    const LEVELS: &[u8] = b" .:-=+*#@";
+fn sparkline(values: &VecDeque<f64>, width: usize, scale: f64, renderer: &str) -> String {
+    const ASCII: &[char] = &[' ', '.', ':', '-', '=', '+', '*', '#', '@'];
+    const UNICODE: &[char] = &[' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    const BLOCKS: &[char] = &[' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'];
+    let levels = match renderer {
+        "ascii" => ASCII,
+        "blocks" => BLOCKS,
+        _ => UNICODE,
+    };
     let start = values.len().saturating_sub(width);
     values
         .iter()
         .skip(start)
         .map(|value| {
-            let level = ((value / scale.max(1.0)) * (LEVELS.len() - 1) as f64)
+            let level = ((value / scale.max(1.0)) * (levels.len() - 1) as f64)
                 .round()
-                .clamp(0.0, (LEVELS.len() - 1) as f64) as usize;
-            LEVELS[level] as char
+                .clamp(0.0, (levels.len() - 1) as f64) as usize;
+            levels[level]
         })
         .collect()
 }
@@ -864,7 +871,12 @@ fn panel_evidence_lines(app: &App, panel: FocusPanel, width: u16) -> Vec<Line<'s
                     t,
                 ));
                 lines.push(Line::from(Span::styled(
-                    sparkline(history, graph_width, scale),
+                    sparkline(
+                        history,
+                        graph_width,
+                        scale,
+                        &app.visualization.graph_renderer,
+                    ),
                     Style::default().fg(color),
                 )));
             }
@@ -1683,30 +1695,41 @@ fn render_home(f: &mut Frame, r: Rect, app: &App) {
         return;
     }
 
-    if r.width < 76 {
+    if app.visualization.is_stacked() && r.height >= 28 {
+        render_vertical_profile(f, r, app, "overview panels unavailable");
+        return;
+    }
+
+    if r.width < 76 || app.visualization.is_focused() || app.visualization.is_stacked() {
         let panel = app.selected_panel().unwrap_or(FocusPanel::HomeModel);
         render_panel_content(f, r, app, panel);
         render_panel_ring(f, r, app, panel, false);
         return;
     }
 
-    // The lower panels contain growing lists, while the upper summaries have a
-    // natural stopping point. Give excess height to inventory and workflow
-    // instead of stretching four equal, mostly empty cards.
-    let column_weights = match app.cfg.layout.density.as_str() {
-        "expanded" => [Constraint::Fill(7), Constraint::Fill(5)],
-        _ => [Constraint::Fill(3), Constraint::Fill(2)],
+    let dense = app.visualization.layout == "dense";
+    let column_weights = if dense {
+        [Constraint::Fill(1), Constraint::Fill(1)]
+    } else {
+        match app.cfg.layout.density.as_str() {
+            "expanded" => [Constraint::Fill(7), Constraint::Fill(5)],
+            _ => [Constraint::Fill(3), Constraint::Fill(2)],
+        }
     };
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints(column_weights)
         .split(r);
-    let summary_height = if r.height >= 28 {
+    let first_height = if dense {
+        (r.height / 2).max(7)
+    } else if r.height >= 28 {
         12
     } else {
         (r.height / 2).max(7)
     };
-    let capacity_height = if r.height >= 28 {
+    let second_height = if dense {
+        (r.height / 2).max(7)
+    } else if r.height >= 28 {
         11
     } else {
         (r.height / 2).max(7)
@@ -1714,23 +1737,22 @@ fn render_home(f: &mut Frame, r: Rect, app: &App) {
     let left = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(summary_height.min(r.height.saturating_sub(7))),
+            Constraint::Length(first_height.min(r.height.saturating_sub(7))),
             Constraint::Min(7),
         ])
         .split(columns[0]);
     let right = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(capacity_height.min(r.height.saturating_sub(7))),
+            Constraint::Length(second_height.min(r.height.saturating_sub(7))),
             Constraint::Min(7),
         ])
         .split(columns[1]);
-    for (area, panel) in [
-        (left[0], FocusPanel::HomeModel),
-        (right[0], FocusPanel::HomeCapacity),
-        (left[1], FocusPanel::HomeSources),
-        (right[1], FocusPanel::HomeNext),
-    ] {
+    let panels = app.visible_panels();
+    for (area, panel) in [left[0], right[0], left[1], right[1]]
+        .into_iter()
+        .zip(panels)
+    {
         render_panel_content(f, area, app, panel);
         render_panel_ring(f, area, app, panel, false);
     }
@@ -2304,14 +2326,16 @@ fn render_home_signals(f: &mut Frame, r: Rect, app: &App) {
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
 }
 
-fn panel_enabled(app: &App, name: &str) -> bool {
-    app.cfg.layout.panel_visible(name)
-}
-
 fn render_measure(f: &mut Frame, r: Rect, app: &App) {
     if r.height < 7 {
         render_compact_measure(f, r, app);
-    } else if r.width >= 76 && r.height >= 12 {
+    } else if app.visualization.is_stacked() && r.height >= 28 {
+        render_vertical_profile(f, r, app, "measure panels hidden in setup");
+    } else if r.width >= 76
+        && r.height >= 12
+        && !app.visualization.is_focused()
+        && !app.visualization.is_stacked()
+    {
         render_measure_grid(f, r, app);
     } else if let Some(panel) = app.selected_panel() {
         render_panel_content(f, r, app, panel);
@@ -2348,50 +2372,69 @@ fn render_panel_stack(
     }
 }
 
+fn render_vertical_profile(f: &mut Frame, area: Rect, app: &App, empty_message: &str) {
+    let panels = app.visible_panels();
+    if panels.is_empty() {
+        render_hidden_notice(f, area, app, empty_message);
+        return;
+    }
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(vec![Constraint::Fill(1); panels.len()])
+        .split(area);
+    for (row, panel) in rows.iter().zip(panels) {
+        render_panel_content(f, *row, app, panel);
+        render_panel_ring(f, *row, app, panel, false);
+    }
+}
+
 fn render_measure_grid(f: &mut Frame, r: Rect, app: &App) {
-    // Performance and history are denser than a stage summary. A masonry split
-    // lets history and time-series views absorb height without moving panels.
+    let dense = app.visualization.layout == "dense";
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Fill(3), Constraint::Fill(2)])
+        .constraints(if dense {
+            [Constraint::Fill(1), Constraint::Fill(1)]
+        } else {
+            [Constraint::Fill(3), Constraint::Fill(2)]
+        })
         .split(r);
-    let left = [
-        panel_enabled(app, "performance").then_some(FocusPanel::Performance),
-        panel_enabled(app, "streams").then_some(FocusPanel::Streams),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
-    let right = [
-        panel_enabled(app, "stages").then_some(FocusPanel::Stages),
-        panel_enabled(app, "history").then_some(FocusPanel::History),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
+    let panels = app.visible_panels();
+    let (left, right) = if dense {
+        (
+            panels.iter().step_by(2).copied().collect::<Vec<_>>(),
+            panels
+                .iter()
+                .skip(1)
+                .step_by(2)
+                .copied()
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        (
+            panels.iter().take(2).copied().collect::<Vec<_>>(),
+            panels.iter().skip(2).copied().collect::<Vec<_>>(),
+        )
+    };
+    let stack = if dense {
+        [Constraint::Fill(1), Constraint::Fill(1)]
+    } else {
+        [Constraint::Fill(3), Constraint::Fill(2)]
+    };
     render_panel_stack(
         f,
         columns[0],
         app,
         &left,
-        [Constraint::Fill(3), Constraint::Fill(2)],
-        "performance panels hidden in setup",
+        stack,
+        "measure panels hidden in setup",
     );
-    let stage_height = if r.height >= 28 {
-        10
-    } else {
-        (r.height / 2).max(7)
-    };
     render_panel_stack(
         f,
         columns[1],
         app,
         &right,
-        [
-            Constraint::Length(stage_height.min(r.height.saturating_sub(7))),
-            Constraint::Min(7),
-        ],
-        "request panels hidden in setup",
+        stack,
+        "measure panels hidden in setup",
     );
 }
 
@@ -2436,14 +2479,24 @@ fn render_compact_measure(f: &mut Frame, r: Rect, app: &App) {
         Line::from(vec![
             Span::styled("decode history   ", Style::default().fg(t.dim)),
             Span::styled(
-                sparkline(&app.tok_hist, graph_width, decode_scale),
+                sparkline(
+                    &app.tok_hist,
+                    graph_width,
+                    decode_scale,
+                    &app.visualization.graph_renderer,
+                ),
                 Style::default().fg(t.ok),
             ),
         ]),
         Line::from(vec![
             Span::styled("prefill history  ", Style::default().fg(t.dim)),
             Span::styled(
-                sparkline(&app.prefill_hist, graph_width, prefill_scale),
+                sparkline(
+                    &app.prefill_hist,
+                    graph_width,
+                    prefill_scale,
+                    &app.visualization.graph_renderer,
+                ),
                 Style::default().fg(t.accent),
             ),
         ]),
@@ -2513,7 +2566,13 @@ fn render_compact_measure(f: &mut Frame, r: Rect, app: &App) {
 fn render_system(f: &mut Frame, r: Rect, app: &App) {
     if r.height < 7 {
         render_compact_system(f, r, app);
-    } else if r.width >= 76 && r.height >= 12 {
+    } else if app.visualization.is_stacked() && r.height >= 28 {
+        render_vertical_profile(f, r, app, "system panels hidden in setup");
+    } else if r.width >= 76
+        && r.height >= 12
+        && !app.visualization.is_focused()
+        && !app.visualization.is_stacked()
+    {
         render_system_grid(f, r, app);
     } else if let Some(panel) = app.selected_panel() {
         render_panel_content(f, r, app, panel);
@@ -2524,49 +2583,60 @@ fn render_system(f: &mut Frame, r: Rect, app: &App) {
 }
 
 fn render_system_grid(f: &mut Frame, r: Rect, app: &App) {
-    // Memory is a bounded summary. Endpoint capabilities and process findings
-    // are lists, so they receive the remaining height instead of equal cards.
+    let dense = app.visualization.layout == "dense";
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Fill(3), Constraint::Fill(2)])
+        .constraints(if dense {
+            [Constraint::Fill(1), Constraint::Fill(1)]
+        } else {
+            [Constraint::Fill(3), Constraint::Fill(2)]
+        })
         .split(r);
-    let left = [
-        panel_enabled(app, "memory").then_some(FocusPanel::Memory),
-        panel_enabled(app, "sources").then_some(FocusPanel::Sources),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
-    let right = [
-        panel_enabled(app, "interference").then_some(FocusPanel::Pressure),
-        panel_enabled(app, "bloat").then_some(FocusPanel::Bloat),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
-    let memory_height = if r.height >= 28 {
-        13
+    let panels = app.visible_panels();
+    let (left, right) = if dense {
+        (
+            panels.iter().step_by(2).copied().collect::<Vec<_>>(),
+            panels
+                .iter()
+                .skip(1)
+                .step_by(2)
+                .copied()
+                .collect::<Vec<_>>(),
+        )
     } else {
-        (r.height / 2).max(7)
+        (
+            panels
+                .iter()
+                .enumerate()
+                .filter_map(|(index, panel)| matches!(index, 0 | 3).then_some(*panel))
+                .collect::<Vec<_>>(),
+            panels
+                .iter()
+                .enumerate()
+                .filter_map(|(index, panel)| matches!(index, 1 | 2).then_some(*panel))
+                .collect::<Vec<_>>(),
+        )
+    };
+    let stack = if dense {
+        [Constraint::Fill(1), Constraint::Fill(1)]
+    } else {
+        [Constraint::Fill(3), Constraint::Fill(2)]
     };
     render_panel_stack(
         f,
         columns[0],
         app,
         &left,
-        [
-            Constraint::Length(memory_height.min(r.height.saturating_sub(7))),
-            Constraint::Min(7),
-        ],
-        "memory and endpoint panels hidden in setup",
+        stack,
+        "system panels hidden in setup",
     );
     render_panel_stack(
         f,
         columns[1],
         app,
         &right,
-        [Constraint::Fill(3), Constraint::Fill(2)],
-        "pressure and Bloat panels hidden in setup",
+        stack,
+        "system panels hidden in setup",
     );
 }
 
@@ -3138,27 +3208,41 @@ fn setup_detail_lines(app: &App) -> Vec<Line<'static>> {
     match app.settings_sel {
         0 => vec![
             Line::from(Span::styled(
-                "THEME",
+                "PALETTE",
                 Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
             )),
-            Line::from("Uses terminal colors by default; Ghostty themes are optional."),
+            Line::from("Semantic color roles stay separate from panel and graph layout."),
             Line::from(Span::styled(
-                "Enter opens the searchable theme list.",
+                "Enter opens first-party and optional Ghostty palettes.",
                 Style::default().fg(t.dim),
             )),
         ],
         1 => vec![
             Line::from(Span::styled(
+                "VISUALIZATION PROFILE",
+                Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(format!(
+                "{}: {}",
+                app.visualization.name, app.visualization.description
+            )),
+            Line::from(Span::styled(
+                "Enter cycles immutable built-ins. Custom TOML uses the typed CLI.",
+                Style::default().fg(t.dim),
+            )),
+        ],
+        2 => vec![
+            Line::from(Span::styled(
                 "DENSITY",
                 Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
             )),
-            Line::from("Changes the balance between the primary reading and supporting signals."),
+            Line::from("Adjusts the active profile after it has supplied a safe default."),
             Line::from(Span::styled(
                 "Enter cycles compact, standard, and expanded.",
                 Style::default().fg(t.dim),
             )),
         ],
-        2 => vec![
+        3 => vec![
             Line::from(Span::styled(
                 "START SCREEN",
                 Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
@@ -3169,7 +3253,7 @@ fn setup_detail_lines(app: &App) -> Vec<Line<'static>> {
                 Style::default().fg(t.dim),
             )),
         ],
-        3 => vec![
+        4 => vec![
             Line::from(Span::styled(
                 "VISIBLE PANELS",
                 Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
@@ -3180,7 +3264,7 @@ fn setup_detail_lines(app: &App) -> Vec<Line<'static>> {
                 Style::default().fg(t.dim),
             )),
         ],
-        4 => vec![
+        5 => vec![
             Line::from(Span::styled(
                 "SIGNAL FOCUS",
                 Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
@@ -3191,18 +3275,18 @@ fn setup_detail_lines(app: &App) -> Vec<Line<'static>> {
                 Style::default().fg(t.dim),
             )),
         ],
-        5 => vec![
+        6 => vec![
             Line::from(Span::styled(
                 "HISTORY WINDOW",
                 Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
             )),
-            Line::from("Bounds in-memory signal samples; no telemetry is uploaded."),
+            Line::from("Bounds session-only in-memory samples; no usage telemetry is uploaded."),
             Line::from(Span::styled(
                 "Enter cycles 40, 80, and 160 poll slots.",
                 Style::default().fg(t.dim),
             )),
         ],
-        6 => vec![
+        7 => vec![
             Line::from(Span::styled(
                 "REQUEST RETENTION",
                 Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
@@ -3213,7 +3297,7 @@ fn setup_detail_lines(app: &App) -> Vec<Line<'static>> {
                 Style::default().fg(t.dim),
             )),
         ],
-        7 => vec![
+        8 => vec![
             Line::from(Span::styled(
                 "LAUNCH IDENTITY",
                 Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
@@ -3224,7 +3308,7 @@ fn setup_detail_lines(app: &App) -> Vec<Line<'static>> {
                 Style::default().fg(t.dim),
             )),
         ],
-        8 => vec![
+        9 => vec![
             Line::from(Span::styled(
                 "LAUNCH MOTION",
                 Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
@@ -3237,7 +3321,7 @@ fn setup_detail_lines(app: &App) -> Vec<Line<'static>> {
                 Style::default().fg(t.dim),
             )),
         ],
-        9 => vec![
+        10 => vec![
             Line::from(Span::styled(
                 "LAUNCH SOUND",
                 Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
@@ -3286,7 +3370,8 @@ fn render_customize(f: &mut Frame, r: Rect, app: &App) {
         app.cfg.observability.request_retention()
     );
     let settings = [
-        ("theme", theme_value.as_str()),
+        ("palette", theme_value.as_str()),
+        ("profile", app.visualization.name.as_str()),
         ("density", app.cfg.layout.density.as_str()),
         ("home", app.cfg.layout.default_view.as_str()),
         ("panels", "choose visible evidence"),
@@ -3299,7 +3384,7 @@ fn render_customize(f: &mut Frame, r: Rect, app: &App) {
         ("walkthrough", "open three-step guide"),
     ];
     let mut list_lines = vec![Line::from(Span::styled(
-        "Enter changes the selected setting.",
+        "OPEN-SOURCE ALPHA · NO USAGE TELEMETRY",
         Style::default().fg(t.dim),
     ))];
     for (index, (name, value)) in settings.iter().enumerate() {
@@ -3322,7 +3407,6 @@ fn render_customize(f: &mut Frame, r: Rect, app: &App) {
             Span::styled(*value, Style::default().fg(t.fg)),
         ]));
     }
-    list_lines.push(Line::from(""));
     list_lines.push(Line::from(Span::styled(
         "j/k select  Enter change  P panels  1 overview",
         Style::default().fg(t.dim),
@@ -3337,7 +3421,7 @@ fn render_customize(f: &mut Frame, r: Rect, app: &App) {
     } else if r.height >= 18 {
         let rows = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(15), Constraint::Min(5)])
+            .constraints([Constraint::Length(16), Constraint::Min(5)])
             .split(r);
         (rows[0], Some(rows[1]))
     } else {
@@ -4362,7 +4446,10 @@ fn render_streams(f: &mut Frame, r: Rect, app: &App, t: &Theme) {
                 format!("{label:<8}{value:>8}  "),
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(sparkline(history, width, scale), Style::default().fg(color)),
+            Span::styled(
+                sparkline(history, width, scale, &app.visualization.graph_renderer),
+                Style::default().fg(color),
+            ),
         ]));
     };
 

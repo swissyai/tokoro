@@ -649,7 +649,7 @@ impl App {
                     self.learn_sel = self.learn_sel.saturating_sub(1);
                 }
                 KeyCode::Char('j') | KeyCode::Down if self.screen == Screen::Customize => {
-                    self.settings_sel = (self.settings_sel + 1).min(10);
+                    self.settings_sel = (self.settings_sel + 1).min(11);
                 }
                 KeyCode::Char('k') | KeyCode::Up if self.screen == Screen::Customize => {
                     self.settings_sel = self.settings_sel.saturating_sub(1);
@@ -661,7 +661,8 @@ impl App {
                             self.popup_sel = 0;
                             self.popup = Popup::Themes;
                         }
-                        1 => {
+                        1 => self.cycle_visualization_profile(),
+                        2 => {
                             self.cfg.layout.density = match self.cfg.layout.density.as_str() {
                                 "compact" => "standard",
                                 "standard" => "expanded",
@@ -669,7 +670,7 @@ impl App {
                             }
                             .into();
                         }
-                        2 => {
+                        3 => {
                             self.cfg.layout.default_view =
                                 match self.cfg.layout.default_view.as_str() {
                                     "home" => "measure",
@@ -681,21 +682,21 @@ impl App {
                                 }
                                 .into();
                         }
-                        3 => {
+                        4 => {
                             self.popup = Popup::Panels;
                             self.popup_sel = 0;
                         }
-                        4 => self.cfg.observability.cycle_focus(),
-                        5 => {
+                        5 => self.cfg.observability.cycle_focus(),
+                        6 => {
                             self.cfg.observability.cycle_history_samples();
                             self.trim_observability_history();
                         }
-                        6 => {
+                        7 => {
                             self.cfg.observability.cycle_request_retention();
                             self.trim_request_history();
                         }
-                        7 => self.cfg.intro.enabled = !self.cfg.intro.enabled,
-                        8 => {
+                        8 => self.cfg.intro.enabled = !self.cfg.intro.enabled,
+                        9 => {
                             self.cfg.intro.motion = match self.cfg.intro.motion.as_str() {
                                 "full" => "reduced",
                                 "reduced" => "none",
@@ -703,7 +704,7 @@ impl App {
                             }
                             .into();
                         }
-                        9 => {
+                        10 => {
                             self.cfg.intro.sound = if self.cfg.intro.sound == "off" {
                                 "tokoro"
                             } else {
@@ -711,7 +712,7 @@ impl App {
                             }
                             .into();
                         }
-                        10 => self.start_onboarding(),
+                        11 => self.start_onboarding(),
                         _ => {}
                     }
                     if !matches!(

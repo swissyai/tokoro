@@ -11,6 +11,7 @@ pub(crate) use crate::platform::expand_home;
 #[serde(default)]
 pub(crate) struct Config {
     pub(crate) theme: ThemeConfig,
+    pub(crate) visualization: VisualizationConfig,
     pub(crate) telemetry: TelemetryConfig,
     pub(crate) layout: LayoutConfig,
     pub(crate) benchmark: BenchmarkConfig,
@@ -26,6 +27,22 @@ pub(crate) struct Config {
 #[serde(default)]
 pub(crate) struct ThemeConfig {
     pub(crate) name: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(default)]
+pub(crate) struct VisualizationConfig {
+    pub(crate) profile: String,
+    pub(crate) custom_file: String,
+}
+
+impl Default for VisualizationConfig {
+    fn default() -> Self {
+        Self {
+            profile: "tokoro".into(),
+            custom_file: String::new(),
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]

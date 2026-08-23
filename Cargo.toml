@@ -1,6 +1,6 @@
 [package]
 name = "tokoro"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2021"
 description = "A place for local models."
 license = "MIT OR Apache-2.0"

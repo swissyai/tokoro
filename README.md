@@ -110,6 +110,12 @@ tokoro config show --json
 tokoro config set density compact
 tokoro config set default-view bloat
 tokoro config set onboarding.completed false
+tokoro visualization list --json
+tokoro visualization schema --json
+tokoro visualization validate ./my-view.toml --json
+tokoro visualization preview operator
+tokoro visualization apply operator
+tokoro visualization apply ./my-view.toml --confirm --json
 tokoro config set observability.focus latency
 tokoro config set observability.history-samples 160
 tokoro config set observability.request-retention 64
@@ -155,7 +161,7 @@ No variable grants report-upload permission.
 
 ## Customization
 
-Setup uses the terminal palette by default. Four first-party choices are always available: `classic` keeps the terminal-native palette, `tokoro` uses the black/white/cyan identity, `operator` uses a restrained btop-like instrumentation palette, and `mono` removes color dependence. When Ghostty theme files exist, including Omarchy's user and system theme directories, they become searchable options too.
+Palette and visualization are separate. The classic terminal-native palette remains the portable default. First-party `tokoro`, `operator`, and `mono` palettes are also available, while discovered Ghostty themes remain optional.
 
 ```sh
 tokoro config set theme classic
@@ -164,7 +170,18 @@ tokoro config set theme operator
 tokoro config set theme mono
 ```
 
-Compact/standard/expanded density, default-screen selection, panel visibility, compact inference-signal focus, history-window size, and metrics-only request retention persist in the platform config directory. Signal and request histories remain local to the current session; a durable measurement exists only after an explicit checked report save. The CLI exposes the same settings for agents and dotfile workflows.
+The versioned `tokoro.visualization.v1` profile controls panel order, density defaults, dashboard layout, graph renderer, and bounded history window without containing colors. `tokoro` is the calm default, `operator` is dense, `focus` shows one evidence panel at a time, and `mono` uses ASCII graphs. Setup cycles the immutable built-ins without changing the palette.
+
+```sh
+tokoro visualization list --json
+tokoro visualization preview focus
+tokoro visualization apply operator
+tokoro visualization schema --json
+```
+
+Custom profiles are strict, data-only local TOML rather than executable plugins. Validate and preview first; generated profile application requires an interactive confirmation or explicit `--confirm`. Invalid fields fail visibly, custom names cannot replace built-ins, and the active palette remains unchanged. See [VISUALIZATION.md](VISUALIZATION.md) for the complete schema and workflow.
+
+Default-screen selection, panel visibility, compact inference-signal focus, history-window size, and metrics-only request retention persist in the platform config directory. Signal and request histories remain local to the current session; a durable measurement exists only after an explicit checked report save. The CLI exposes the same settings for agents and dotfile workflows.
 
 ### Launch identity
 
@@ -309,6 +326,7 @@ Tokoro is a library-backed binary with a thin `src/main.rs`. The crate is organi
 - `agents`: installed coding-agent detection
 - `local_ai`: optional public-web lookup and local recommendation cache
 - `monitoring`: versioned stack posture, current evidence, and deterministic operational cues
+- `visualization`: strict `tokoro.visualization.v1` profiles, validation, and local installation
 - `commands`: the stable command catalog shared by humans and agents
 - `input`: keyboard state transitions behind one App interface
 - `intro`: bounded launch frames, motion modes, and optional local sound playback
@@ -325,7 +343,7 @@ Tokoro is a library-backed binary with a thin `src/main.rs`. The crate is organi
 
 The dashboard is private by default. Handoffs contain relative filenames only and reject traversal, symlinks, duplicate declarations, unlisted files, changed byte counts, changed hashes, and mismatched nested bundles. Exports exclude local paths, usernames, prompts, responses, PIDs, command lines, logs, and secrets unless explicitly added by the user. Nothing is uploaded silently.
 
-See `DESIGN.md`, `PRODUCT.md`, `MONITORING.md`, and `PUBLICATION.md` for the interface, product scope, monitoring baseline, and publication boundary.
+See `DESIGN.md`, `PRODUCT.md`, `VISUALIZATION.md`, `MONITORING.md`, and `PUBLICATION.md` for the interface, product scope, profile contract, monitoring baseline, and publication boundary.
 
 ## Contributing and license
 

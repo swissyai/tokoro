@@ -1,4 +1,4 @@
-// tokoro v0.8.0, a place for local models
+// tokoro v0.8.1, a place for local models
 // Telemetry + stages + benchmarks + server mgmt + harness snippets + interference.
 // The lower of model context and memory capacity sets the context gauge.
 // Theme-native (ANSI) by default; Ghostty theme files via config.
@@ -21,6 +21,7 @@ mod report;
 mod runtime;
 mod settings;
 mod ui;
+mod visualization;
 
 use commands::Action as CommandAction;
 use crossterm::{
@@ -42,6 +43,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use visualization::Profile as VisualizationProfile;
 
 const MAX_REQUESTS_HARD: usize = 128;
 const BYTES_PER_GIB: f64 = 1024.0 * 1024.0 * 1024.0;
@@ -1566,6 +1568,41 @@ impl FocusPanel {
             Self::Memory | Self::Pressure | Self::Bloat | Self::Sources => Screen::System,
         }
     }
+
+    const fn id(self) -> &'static str {
+        match self {
+            Self::HomeModel => "model",
+            Self::HomeCapacity => "capacity",
+            Self::HomeSources => "inventory",
+            Self::HomeNext => "next",
+            Self::Performance => "performance",
+            Self::Streams => "streams",
+            Self::Stages => "stages",
+            Self::History => "history",
+            Self::Memory => "memory",
+            Self::Pressure => "interference",
+            Self::Bloat => "bloat",
+            Self::Sources => "sources",
+        }
+    }
+
+    fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "model" => Some(Self::HomeModel),
+            "capacity" => Some(Self::HomeCapacity),
+            "inventory" => Some(Self::HomeSources),
+            "next" => Some(Self::HomeNext),
+            "performance" => Some(Self::Performance),
+            "streams" => Some(Self::Streams),
+            "stages" => Some(Self::Stages),
+            "history" => Some(Self::History),
+            "memory" => Some(Self::Memory),
+            "interference" => Some(Self::Pressure),
+            "bloat" => Some(Self::Bloat),
+            "sources" => Some(Self::Sources),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1667,6 +1704,7 @@ const ONBOARDING_CHOICES: [OnboardingChoice; 4] = [
 struct App {
     cfg: Config,
     theme: Theme,
+    visualization: VisualizationProfile,
     sys: sysinfo::System,
     device: device::Monitor,
     chip: String,
@@ -1751,6 +1789,14 @@ struct App {
 impl App {
     fn new(cfg: Config) -> Self {
         let theme = Theme::load(&cfg.theme);
+        let (visualization, visualization_error) = match visualization::resolve(&cfg.visualization)
+        {
+            Ok(profile) => (profile, None),
+            Err(error) => (
+                visualization::builtin("tokoro").expect("built-in Tokoro profile"),
+                Some(error),
+            ),
+        };
         let history_samples = cfg.observability.history_samples();
         let theme_choices = theme_choices();
         let follower = LogFollower::new(&cfg.telemetry.log_path);
@@ -1836,7 +1882,12 @@ impl App {
             popup: Popup::None,
             popup_sel: 0,
             model_tab: ModelTab::Local,
-            status_msg: None,
+            status_msg: visualization_error.map(|error| {
+                (
+                    format!("visualization profile invalid; using Tokoro: {error}"),
+                    Instant::now(),
+                )
+            }),
             screen,
             panel_sel: 0,
             expanded_panel: None,
@@ -1865,6 +1916,7 @@ impl App {
             sys: sysinfo::System::new(),
             cfg,
             theme,
+            visualization,
         }
     }
 
@@ -1878,6 +1930,23 @@ impl App {
         self.onboarding_sel = 0;
         self.popup = Popup::Onboarding;
         self.dirty = true;
+    }
+
+    fn cycle_visualization_profile(&mut self) {
+        let profiles = visualization::builtins();
+        let current = profiles
+            .iter()
+            .position(|profile| profile.name == self.visualization.name)
+            .map(|index| (index + 1) % profiles.len())
+            .unwrap_or(0);
+        let profile = profiles[current].clone();
+        self.cfg.visualization.profile = profile.name.clone();
+        self.cfg.visualization.custom_file.clear();
+        self.cfg.layout.density = profile.density.clone();
+        self.cfg.observability.history_samples = profile.history_window;
+        self.visualization = profile;
+        self.panel_sel = 0;
+        self.trim_observability_history();
     }
 
     fn trim_observability_history(&mut self) {
@@ -1915,33 +1984,21 @@ impl App {
     }
 
     fn visible_panels(&self) -> Vec<FocusPanel> {
-        match self.screen {
-            Screen::Home => vec![
-                FocusPanel::HomeModel,
-                FocusPanel::HomeCapacity,
-                FocusPanel::HomeSources,
-                FocusPanel::HomeNext,
-            ],
-            Screen::Measure => [
-                ("performance", FocusPanel::Performance),
-                ("streams", FocusPanel::Streams),
-                ("stages", FocusPanel::Stages),
-                ("history", FocusPanel::History),
-            ]
-            .into_iter()
-            .filter_map(|(name, panel)| self.cfg.layout.panel_visible(name).then_some(panel))
-            .collect(),
-            Screen::System => [
-                ("memory", FocusPanel::Memory),
-                ("interference", FocusPanel::Pressure),
-                ("bloat", FocusPanel::Bloat),
-                ("sources", FocusPanel::Sources),
-            ]
-            .into_iter()
-            .filter_map(|(name, panel)| self.cfg.layout.panel_visible(name).then_some(panel))
-            .collect(),
-            Screen::Learn | Screen::Customize | Screen::Bloat => Vec::new(),
+        if matches!(
+            self.screen,
+            Screen::Learn | Screen::Customize | Screen::Bloat
+        ) {
+            return Vec::new();
         }
+        self.visualization
+            .panel_order
+            .iter()
+            .filter_map(|id| FocusPanel::from_id(id))
+            .filter(|panel| panel.screen() == self.screen)
+            .filter(|panel| {
+                self.screen == Screen::Home || self.cfg.layout.panel_visible(panel.id())
+            })
+            .collect()
     }
 
     fn selected_panel(&self) -> Option<FocusPanel> {
@@ -4190,6 +4247,41 @@ mod tests {
         assert!(text.contains("WORKLOAD BUDGETS"));
         assert!(text.contains("server-reported usage"));
         assert!(text.contains("system_throughput"));
+    }
+
+    #[test]
+    fn visualization_profiles_change_layout_without_changing_palette() {
+        let mut config = Config::default();
+        config.bloat.scan_project = false;
+        config.theme.name = "classic".into();
+        let mut app = App::new(config);
+
+        app.cycle_visualization_profile();
+        assert_eq!(app.visualization.name, "operator");
+        assert_eq!(app.visualization.layout, "dense");
+        assert_eq!(app.cfg.layout.density, "compact");
+        assert_eq!(app.cfg.observability.history_samples(), 160);
+        assert_eq!(app.cfg.theme.name, "classic");
+        app.tok_hist.push_back(18.0);
+        app.show_screen(Screen::Measure);
+        let operator = rendered_text(&app, 120, 32);
+        assert!(operator.chars().any(|ch| "▏▎▍▌▋▊▉█".contains(ch)));
+
+        app.cycle_visualization_profile();
+        assert_eq!(app.visualization.name, "focus");
+        app.show_screen(Screen::Home);
+        let focused = rendered_text(&app, 120, 32);
+        assert!(focused.contains("CURRENT CUE"));
+        assert!(!focused.contains("CAPACITY"));
+        assert_eq!(app.cfg.theme.name, "classic");
+
+        app.cycle_visualization_profile();
+        assert_eq!(app.visualization.name, "mono");
+        assert_eq!(app.visualization.graph_renderer, "ascii");
+        app.show_screen(Screen::Measure);
+        let mono = rendered_text(&app, 120, 32);
+        assert!(!mono.chars().any(|ch| "▁▂▃▄▅▆▇█▏▎▍▌▋▊▉".contains(ch)));
+        assert_eq!(app.cfg.theme.name, "classic");
     }
 
     #[test]

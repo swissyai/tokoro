@@ -22,6 +22,8 @@ smoke:
 	cargo run --quiet -- help >/dev/null
 	cargo run --quiet -- commands --json >/dev/null
 	cargo run --quiet -- monitor --json >/dev/null
+	cargo run --quiet -- visualization list --json >/dev/null
+	cargo run --quiet -- visualization schema --json >/dev/null
 	cargo run --quiet -- integrations --json >/dev/null
 	cargo run --quiet -- handoff list --json >/dev/null
 
