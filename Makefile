@@ -1,4 +1,4 @@
-.PHONY: build run check fmt lint test smoke verify audit check-windows
+.PHONY: build run check fmt lint test smoke public-surface verify audit check-windows
 
 build:
 	cargo build
@@ -27,7 +27,15 @@ smoke:
 	cargo run --quiet -- integrations --json >/dev/null
 	cargo run --quiet -- handoff list --json >/dev/null
 
-verify: fmt lint test smoke
+public-surface:
+	@extra="$$(git ls-files | awk 'tolower($$0) ~ /\\.md$$/ && $$0 != "README.md"')"; \
+	if [ -n "$$extra" ]; then \
+		echo "Only README.md may be tracked as Markdown:" >&2; \
+		printf '%s\n' "$$extra" >&2; \
+		exit 1; \
+	fi
+
+verify: public-surface fmt lint test smoke
 
 audit:
 	cargo audit
