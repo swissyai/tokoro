@@ -307,4 +307,4 @@ See `DESIGN.md`, `PRODUCT.md`, `MONITORING.md`, and `PUBLICATION.md` for the int
 
 ## Contributing and license
 
-Tokoro is dual-licensed under `MIT OR Apache-2.0`. See `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and `TRADEMARKS.md` before contributing or redistributing a branded build.
+Tokoro is dual-licensed under `MIT OR Apache-2.0`. See `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and `TRADEMARKS.md` before contributing or redistributing a branded build. The tracking-free landing page is maintained separately at [`swissyai/tokoro-site`](https://github.com/swissyai/tokoro-site).
