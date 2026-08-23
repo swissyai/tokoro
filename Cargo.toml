@@ -22,7 +22,7 @@ ratatui = { version = "0.30.2", default-features = false, features = ["crossterm
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
-sysinfo = "0.33"
+sysinfo = "0.39"
 ureq = { version = "2", features = ["json"] }
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 sha2 = "0.10"
