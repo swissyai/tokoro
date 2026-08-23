@@ -1,0 +1,51 @@
+name: Bug report
+description: Report reproducible incorrect behavior
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include prompts, responses, credentials, private model content, usernames, or absolute paths.
+  - type: input
+    id: version
+    attributes:
+      label: Tokoro version
+      placeholder: 0.8.0
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [macOS, Linux, Omarchy, Windows, Other]
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Runtime and version
+      placeholder: Ollama 0.x, llama.cpp build, vLLM 0.x, MLX-DSpark, LM Studio
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Reproduction and observed behavior
+      description: Use synthetic, path-sanitized values.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Include provenance and whether the value was measured, runtime-reported, log-derived, or estimated.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed credentials, prompts, responses, personal data, and absolute paths.
+          required: true

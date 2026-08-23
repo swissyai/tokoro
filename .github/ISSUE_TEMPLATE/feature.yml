@@ -1,0 +1,36 @@
+name: Feature proposal
+description: Propose a focused improvement to local model operation
+labels: [enhancement]
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: User outcome
+      description: Which find, run, connect, or understand step becomes easier?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and current workaround
+      description: Link public runtime contracts or describe current friction.
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: Smallest useful shape
+      description: Prefer one typed command, schema field, adapter, or focused interaction.
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Boundaries
+      options:
+        - label: The proposal works without a cloud account or automatic upload.
+          required: true
+        - label: Missing telemetry remains unavailable rather than becoming zero.
+          required: true
+        - label: Agent-facing behavior can use a typed interface rather than TUI scraping.
+          required: true
