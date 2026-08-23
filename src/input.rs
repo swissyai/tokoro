@@ -63,8 +63,45 @@ fn apply_command(app: &mut App, action: CommandAction) {
             app.popup = Popup::Panels;
             app.popup_sel = 0;
         }
+        CommandAction::Walkthrough => app.start_onboarding(),
     }
     app.dirty = true;
+}
+
+fn finish_onboarding(app: &mut App, open_destination: bool) {
+    app.cfg.onboarding.completed = true;
+    let save_error = save_config(&app.cfg).err();
+    app.popup = Popup::None;
+
+    if open_destination {
+        match app.onboarding_sel {
+            0 => {
+                app.model_tab = ModelTab::Local;
+                app.popup = Popup::Models;
+                app.popup_sel = 0;
+            }
+            1 => {
+                app.connect_model = connection_model_choices(app)
+                    .into_iter()
+                    .next()
+                    .unwrap_or_else(|| "model-id".into());
+                app.connect_query.clear();
+                app.popup = Popup::Connect;
+                app.popup_sel = 0;
+            }
+            2 => app.show_screen(Screen::Measure),
+            _ => app.show_screen(Screen::Learn),
+        }
+    }
+
+    let message = if let Some(error) = save_error {
+        format!("walkthrough closed but completion was not saved: {error}")
+    } else if open_destination {
+        "walkthrough complete | no usage telemetry is sent".into()
+    } else {
+        "walkthrough skipped | rerun it from Setup or the command palette".into()
+    };
+    app.set_status(message);
 }
 
 fn toggle_server(app: &mut App) {
@@ -149,6 +186,29 @@ impl App {
     pub(crate) fn handle_key(&mut self, k: KeyEvent) -> InputControl {
         self.dirty = true;
         match self.popup {
+            Popup::Onboarding => match k.code {
+                KeyCode::Char('q') => return InputControl::Quit,
+                KeyCode::Esc | KeyCode::Char('s' | 'S') => finish_onboarding(self, false),
+                KeyCode::Left | KeyCode::Backspace if self.onboarding_step > 0 => {
+                    self.onboarding_step -= 1;
+                }
+                KeyCode::Up | KeyCode::Char('k') if self.onboarding_step == 1 => {
+                    self.onboarding_sel = self.onboarding_sel.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') if self.onboarding_step == 1 => {
+                    if self.onboarding_sel + 1 < super::ONBOARDING_CHOICES.len() {
+                        self.onboarding_sel += 1;
+                    }
+                }
+                KeyCode::Char(choice @ '1'..='4') if self.onboarding_step == 1 => {
+                    self.onboarding_sel = choice as usize - '1' as usize;
+                }
+                KeyCode::Enter if self.onboarding_step < 2 => {
+                    self.onboarding_step += 1;
+                }
+                KeyCode::Enter => finish_onboarding(self, true),
+                _ => {}
+            },
             Popup::Command => match k.code {
                 KeyCode::Esc => self.popup = Popup::None,
                 KeyCode::Up | KeyCode::Char('k') => {
@@ -589,7 +649,7 @@ impl App {
                     self.learn_sel = self.learn_sel.saturating_sub(1);
                 }
                 KeyCode::Char('j') | KeyCode::Down if self.screen == Screen::Customize => {
-                    self.settings_sel = (self.settings_sel + 1).min(9);
+                    self.settings_sel = (self.settings_sel + 1).min(10);
                 }
                 KeyCode::Char('k') | KeyCode::Up if self.screen == Screen::Customize => {
                     self.settings_sel = self.settings_sel.saturating_sub(1);
@@ -651,9 +711,13 @@ impl App {
                             }
                             .into();
                         }
+                        10 => self.start_onboarding(),
                         _ => {}
                     }
-                    if !matches!(self.popup, Popup::Themes | Popup::Panels) {
+                    if !matches!(
+                        self.popup,
+                        Popup::Themes | Popup::Panels | Popup::Onboarding
+                    ) {
                         if let Err(error) = save_config(&self.cfg) {
                             self.set_status(format!("setup not saved: {}", error));
                         } else {
@@ -711,6 +775,26 @@ mod tests {
         assert_eq!(app.screen, Screen::Bloat);
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(app.screen, Screen::Home);
+    }
+
+    #[test]
+    fn walkthrough_is_short_selectable_and_skippable_from_every_step() {
+        let mut app = app();
+        app.start_onboarding();
+        assert_eq!(app.popup, Popup::Onboarding);
+        assert_eq!(app.onboarding_step, 0);
+
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!(app.onboarding_step, 1);
+        assert_eq!(app.onboarding_sel, 1);
+
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.onboarding_step, 2);
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+            InputControl::Quit
+        );
     }
 
     #[test]

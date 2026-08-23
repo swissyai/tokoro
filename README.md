@@ -5,6 +5,8 @@
 
 **A place for local models.**
 
+> Tokoro is open-source alpha software. Commands, schemas, and runtime support may change before 1.0.
+
 Tokoro finds models that fit the current machine, runs them, connects local tools and agents, and explains what happens next. Monitoring, benchmarks, quality fixtures, and checked handoffs support that path without becoming prerequisites.
 
 ```text
@@ -46,6 +48,16 @@ make verify
 ```
 
 The same command works in macOS, Linux terminals, and Windows Terminal or PowerShell. Tokoro starts in **Overview**. It shows the current chip, RAM use, RAM available for loading a model, free disk space in the configured models directory, runtime state, and one next action.
+
+## First run
+
+A fresh interactive install opens a three-step walkthrough after the launch identity. It explains the product path, asks what the user wants to do first, teaches only the shared navigation keys, and opens the matching starting view. `Esc` or `S` skips from every step. `q` quits. Nothing is uploaded, and completion is stored only in the local config file.
+
+The walkthrough can be reopened from Setup or by searching `tour` in the command palette. An agent or dotfile can control the first-run state without parsing terminal cells:
+
+```sh
+tokoro config set onboarding.completed false
+```
 
 ## Keyboard
 
@@ -97,6 +109,7 @@ tokoro scan --deep --json --project .
 tokoro config show --json
 tokoro config set density compact
 tokoro config set default-view bloat
+tokoro config set onboarding.completed false
 tokoro config set observability.focus latency
 tokoro config set observability.history-samples 160
 tokoro config set observability.request-retention 64
@@ -142,7 +155,16 @@ No variable grants report-upload permission.
 
 ## Customization
 
-Setup uses the terminal palette by default. When Ghostty theme files exist, including Omarchy's user and system theme directories, they become searchable options. Compact/standard/expanded density, default-screen selection, panel visibility, compact inference-signal focus, history-window size, and metrics-only request retention persist in the platform config directory. Signal and request histories remain local to the current session; a durable measurement exists only after an explicit checked report save. The CLI exposes the same settings for agents and dotfile workflows.
+Setup uses the terminal palette by default. Four first-party choices are always available: `classic` keeps the terminal-native palette, `tokoro` uses the black/white/cyan identity, `operator` uses a restrained btop-like instrumentation palette, and `mono` removes color dependence. When Ghostty theme files exist, including Omarchy's user and system theme directories, they become searchable options too.
+
+```sh
+tokoro config set theme classic
+tokoro config set theme tokoro
+tokoro config set theme operator
+tokoro config set theme mono
+```
+
+Compact/standard/expanded density, default-screen selection, panel visibility, compact inference-signal focus, history-window size, and metrics-only request retention persist in the platform config directory. Signal and request histories remain local to the current session; a durable measurement exists only after an explicit checked report save. The CLI exposes the same settings for agents and dotfile workflows.
 
 ### Launch identity
 

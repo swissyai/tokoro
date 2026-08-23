@@ -19,6 +19,7 @@ pub enum Action {
     LocalAi,
     LocalAiRefresh,
     Panels,
+    Walkthrough,
 }
 
 impl Action {
@@ -41,6 +42,7 @@ impl Action {
             Self::LocalAi => "recommendations.local_ai.view",
             Self::LocalAiRefresh => "recommendations.local_ai.refresh",
             Self::Panels => "layout.panels",
+            Self::Walkthrough => "onboarding.open",
         }
     }
 }
@@ -156,6 +158,12 @@ pub fn catalog() -> Vec<Item> {
             detail: "choose what appears in detailed views",
             action: Action::Panels,
         },
+        Item {
+            key: "tour",
+            label: "Quick walkthrough",
+            detail: "choose a goal and open the right starting view",
+            action: Action::Walkthrough,
+        },
     ]
 }
 
@@ -193,6 +201,9 @@ mod tests {
         assert!(items
             .iter()
             .any(|item| item.key == "s" && item.action.id() == "serve.toggle"));
+        assert!(items
+            .iter()
+            .any(|item| item.key == "tour" && item.action.id() == "onboarding.open"));
     }
 
     #[test]

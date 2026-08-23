@@ -108,6 +108,7 @@ Agent-native interface:
   tokoro config set theme NAME
   tokoro config set density compact|standard|expanded
   tokoro config set default-view home|measure|system|learn|setup|bloat
+  tokoro config set onboarding.completed true|false
   tokoro config set observability.focus balanced|latency|throughput|memory|speculation
   tokoro config set observability.history-samples 24..240
   tokoro config set observability.request-retention 8..128
@@ -719,6 +720,10 @@ fn run_config(args: &[String]) -> Result<(), String> {
                     "budgeted_workloads": cfg.benchmark.budgets.len(),
                 },
                 "server": { "port": cfg.server.port },
+                "onboarding": {
+                    "completed": cfg.onboarding.completed,
+                    "custody": "local_config_only",
+                },
                 "intro": {
                     "enabled": cfg.intro.enabled,
                     "style": cfg.intro.style,
@@ -803,6 +808,9 @@ fn run_config(args: &[String]) -> Result<(), String> {
                     }
                     cfg.observability.request_retention = records;
                 }
+                "onboarding.completed" if matches!(value.as_str(), "true" | "false") => {
+                    cfg.onboarding.completed = value == "true";
+                }
                 "intro.enabled" if matches!(value.as_str(), "true" | "false") => {
                     cfg.intro.enabled = value == "true";
                 }
@@ -836,6 +844,9 @@ fn run_config(args: &[String]) -> Result<(), String> {
                 }
                 "observability.focus" => {
                     return Err("observability.focus must be balanced, latency, throughput, memory, or speculation".into())
+                }
+                "onboarding.completed" => {
+                    return Err("onboarding.completed must be true or false".into())
                 }
                 "intro.enabled" => return Err("intro.enabled must be true or false".into()),
                 "intro.motion" => return Err("intro.motion must be full, reduced, or none".into()),

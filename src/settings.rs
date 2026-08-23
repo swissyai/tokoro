@@ -19,12 +19,19 @@ pub(crate) struct Config {
     pub(crate) bloat: BloatConfig,
     pub(crate) server: ServerConfig,
     pub(crate) intro: IntroConfig,
+    pub(crate) onboarding: OnboardingConfig,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(default)]
 pub(crate) struct ThemeConfig {
     pub(crate) name: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(default)]
+pub(crate) struct OnboardingConfig {
+    pub(crate) completed: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -352,7 +359,14 @@ fn configured_ghostty_theme() -> Option<String> {
 }
 
 pub(crate) fn theme_choices() -> Vec<String> {
-    let mut choices = vec!["auto".into(), "terminal".into()];
+    let mut choices = vec![
+        "auto".into(),
+        "classic".into(),
+        "tokoro".into(),
+        "operator".into(),
+        "mono".into(),
+        "terminal".into(),
+    ];
     for dir in platform::ghostty_theme_dirs() {
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -380,6 +394,48 @@ impl Theme {
             accent: Color::Cyan,
             kv: Color::Magenta,
             weights: Color::Blue,
+            bg: None,
+        }
+    }
+
+    fn tokoro() -> Self {
+        Self {
+            fg: Color::Rgb(244, 247, 247),
+            dim: Color::Rgb(102, 114, 118),
+            ok: Color::Rgb(145, 199, 160),
+            warn: Color::Rgb(214, 196, 119),
+            err: Color::Rgb(219, 107, 107),
+            accent: Color::Rgb(89, 217, 232),
+            kv: Color::Rgb(142, 134, 201),
+            weights: Color::Rgb(113, 148, 196),
+            bg: Some(Color::Rgb(3, 5, 6)),
+        }
+    }
+
+    fn operator() -> Self {
+        Self {
+            fg: Color::Rgb(217, 222, 212),
+            dim: Color::Rgb(104, 112, 102),
+            ok: Color::Rgb(169, 199, 157),
+            warn: Color::Rgb(214, 196, 119),
+            err: Color::Rgb(219, 107, 107),
+            accent: Color::Rgb(169, 199, 157),
+            kv: Color::Rgb(142, 134, 201),
+            weights: Color::Rgb(113, 148, 196),
+            bg: Some(Color::Rgb(2, 4, 3)),
+        }
+    }
+
+    fn mono() -> Self {
+        Self {
+            fg: Color::Reset,
+            dim: Color::DarkGray,
+            ok: Color::Reset,
+            warn: Color::Reset,
+            err: Color::Reset,
+            accent: Color::Reset,
+            kv: Color::Reset,
+            weights: Color::Reset,
             bg: None,
         }
     }
@@ -451,8 +507,36 @@ impl Theme {
         };
 
         match name.as_deref() {
-            None | Some("terminal") => Self::terminal_default(),
+            None | Some("classic" | "terminal") => Self::terminal_default(),
+            Some("tokoro") => Self::tokoro(),
+            Some("operator") => Self::operator(),
+            Some("mono") => Self::mono(),
             Some(name) => Self::ghostty(name).unwrap_or_else(Self::terminal_default),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_party_themes_are_available_without_terminal_theme_files() {
+        let choices = theme_choices();
+        for name in ["classic", "tokoro", "operator", "mono"] {
+            assert!(choices.iter().any(|choice| choice == name), "{name}");
+        }
+
+        let operator = Theme::load(&ThemeConfig {
+            name: "operator".into(),
+        });
+        assert_eq!(operator.accent, Color::Rgb(169, 199, 157));
+        assert_eq!(operator.bg, Some(Color::Rgb(2, 4, 3)));
+
+        let mono = Theme::load(&ThemeConfig {
+            name: "mono".into(),
+        });
+        assert_eq!(mono.accent, Color::Reset);
+        assert_eq!(mono.bg, None);
     }
 }

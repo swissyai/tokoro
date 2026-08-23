@@ -2,7 +2,7 @@ use super::{
     benchmark_recipes, bloat, commands, connection_description, connection_matches,
     connection_model_choices, connection_port, harness_snippets, huggingface, learn, monitoring,
     platform, public_model_id, report, theme_matches, App, Binding, ExpandedPane, FocusPanel,
-    ModelTab, Popup, Screen, Stage, Theme, BYTES_PER_GIB,
+    ModelTab, Popup, Screen, Stage, Theme, BYTES_PER_GIB, ONBOARDING_CHOICES,
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -1599,6 +1599,7 @@ pub(crate) fn render(f: &mut Frame, app: &App) {
         Popup::Panels => render_panels_popup(f, area, app),
         Popup::Themes => render_themes_popup(f, area, app),
         Popup::Publish => render_publish_popup(f, area, app, &app.theme),
+        Popup::Onboarding => render_onboarding_popup(f, area, app),
         Popup::None => {}
     }
 }
@@ -3236,7 +3237,7 @@ fn setup_detail_lines(app: &App) -> Vec<Line<'static>> {
                 Style::default().fg(t.dim),
             )),
         ],
-        _ => vec![
+        9 => vec![
             Line::from(Span::styled(
                 "LAUNCH SOUND",
                 Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
@@ -3246,6 +3247,17 @@ fn setup_detail_lines(app: &App) -> Vec<Line<'static>> {
             ),
             Line::from(Span::styled(
                 "Enter toggles the opt-in sound. Playback failure stays silent.",
+                Style::default().fg(t.dim),
+            )),
+        ],
+        _ => vec![
+            Line::from(Span::styled(
+                "QUICK WALKTHROUGH",
+                Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+            )),
+            Line::from("Choose a goal and Tokoro opens the right starting view."),
+            Line::from(Span::styled(
+                "Three short steps. Esc or S skips from anywhere.",
                 Style::default().fg(t.dim),
             )),
         ],
@@ -3284,6 +3296,7 @@ fn render_customize(f: &mut Frame, r: Rect, app: &App) {
         ("launch", intro_value),
         ("motion", app.cfg.intro.motion.as_str()),
         ("sound", sound_value),
+        ("walkthrough", "open three-step guide"),
     ];
     let mut list_lines = vec![Line::from(Span::styled(
         "Enter changes the selected setting.",
@@ -3348,6 +3361,157 @@ fn render_customize(f: &mut Frame, r: Rect, app: &App) {
             detail_block.inner(detail_area),
         );
     }
+}
+
+fn render_onboarding_popup(f: &mut Frame, area: Rect, app: &App) {
+    let t = &app.theme;
+    let popup_area = if area.width >= 72 && area.height >= 20 {
+        centered(area, 74, 72)
+    } else {
+        area
+    };
+    f.render_widget(Clear, popup_area);
+    let block = Block::default()
+        .title(format!(
+            " QUICK WALKTHROUGH | {}/3 | ESC OR S SKIPS ",
+            app.onboarding_step + 1
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(t.accent));
+    f.render_widget(block.clone(), popup_area);
+    let inner = block.inner(popup_area);
+
+    let mut lines = vec![Line::from(vec![
+        Span::styled(
+            "TOKORO",
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" / OPEN-SOURCE ALPHA", Style::default().fg(t.dim)),
+    ])];
+
+    match app.onboarding_step {
+        0 => {
+            lines.extend([
+                Line::from(""),
+                Line::from(Span::styled(
+                    "A place for local models.",
+                    Style::default().fg(t.fg).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from("Discover -> Choose -> Run -> Connect -> Understand"),
+                Line::from(""),
+                Line::from("Tokoro is checking this machine while you read."),
+                Line::from(Span::styled(
+                    "No account. No usage telemetry. Prompts and responses stay local.",
+                    Style::default().fg(t.dim),
+                )),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("Enter", Style::default().fg(t.accent)),
+                    Span::raw(" continue   "),
+                    Span::styled("Esc / S", Style::default().fg(t.dim)),
+                    Span::raw(" skip"),
+                ]),
+            ]);
+        }
+        1 => {
+            lines.extend([
+                Line::from(""),
+                Line::from(Span::styled(
+                    "What do you want to do first?",
+                    Style::default().fg(t.fg).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(Span::styled(
+                    "This only chooses where the walkthrough leaves you.",
+                    Style::default().fg(t.dim),
+                )),
+                Line::from(""),
+            ]);
+            let show_details = inner.height >= 16;
+            for (index, choice) in ONBOARDING_CHOICES.iter().enumerate() {
+                let selected = index == app.onboarding_sel;
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        if selected { "> " } else { "  " },
+                        Style::default().fg(if selected { t.accent } else { t.dim }),
+                    ),
+                    Span::styled(
+                        format!("{}  {}", index + 1, choice.label),
+                        Style::default()
+                            .fg(if selected { t.fg } else { t.dim })
+                            .add_modifier(if selected {
+                                Modifier::BOLD
+                            } else {
+                                Modifier::empty()
+                            }),
+                    ),
+                ]));
+                if show_details {
+                    lines.push(Line::from(Span::styled(
+                        format!("     {}", choice.detail),
+                        Style::default().fg(t.dim),
+                    )));
+                }
+            }
+            lines.extend([
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("Up / Down", Style::default().fg(t.accent)),
+                    Span::raw(" choose   "),
+                    Span::styled("Enter", Style::default().fg(t.accent)),
+                    Span::raw(" continue"),
+                ]),
+            ]);
+        }
+        _ => {
+            let choice = &ONBOARDING_CHOICES[app
+                .onboarding_sel
+                .min(ONBOARDING_CHOICES.len().saturating_sub(1))];
+            lines.extend([
+                Line::from(""),
+                Line::from(Span::styled(
+                    "You are ready.",
+                    Style::default().fg(t.fg).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(vec![
+                    Span::styled("Start in  ", Style::default().fg(t.dim)),
+                    Span::styled(
+                        choice.destination,
+                        Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+                Line::from(choice.detail),
+                Line::from(""),
+            ]);
+            if inner.height >= 18 {
+                lines.extend([
+                    Line::from("Up / Down or j / k   choose"),
+                    Line::from("Enter                open"),
+                    Line::from("Tab                  move between visible panels"),
+                    Line::from("Esc                  go back"),
+                    Line::from("?                    open Learn"),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Reopen this guide from Setup or the command palette.",
+                        Style::default().fg(t.dim),
+                    )),
+                    Line::from(""),
+                ]);
+            } else {
+                lines.extend([
+                    Line::from("Up/Down choose  Enter open  Tab panels"),
+                    Line::from("Esc back  ? Learn"),
+                    Line::from(""),
+                ]);
+            }
+            lines.push(Line::from(vec![
+                Span::styled("Enter", Style::default().fg(t.accent)),
+                Span::raw(format!(" open {}", choice.destination)),
+            ]));
+        }
+    }
+
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 fn render_command_popup(f: &mut Frame, area: Rect, app: &App) {

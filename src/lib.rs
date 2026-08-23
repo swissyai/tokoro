@@ -1632,7 +1632,37 @@ enum Popup {
     Panels,
     Themes,
     Publish,
+    Onboarding,
 }
+
+struct OnboardingChoice {
+    label: &'static str,
+    detail: &'static str,
+    destination: &'static str,
+}
+
+const ONBOARDING_CHOICES: [OnboardingChoice; 4] = [
+    OnboardingChoice {
+        label: "Find and run a model",
+        detail: "See compatible local targets and start one.",
+        destination: "Discover",
+    },
+    OnboardingChoice {
+        label: "Connect a local agent",
+        detail: "Prepare an installed tool for the local endpoint.",
+        destination: "Connect",
+    },
+    OnboardingChoice {
+        label: "Watch model performance",
+        detail: "Open live request, token, and memory evidence.",
+        destination: "Measure",
+    },
+    OnboardingChoice {
+        label: "Learn the signals",
+        detail: "Read short explanations grounded in current evidence.",
+        destination: "Learn",
+    },
+];
 
 struct App {
     cfg: Config,
@@ -1700,6 +1730,8 @@ struct App {
     command_sel: usize,
     learn_sel: usize,
     settings_sel: usize,
+    onboarding_step: usize,
+    onboarding_sel: usize,
     theme_choices: Vec<String>,
     theme_query: String,
     bloat: bloat::Scanner,
@@ -1815,6 +1847,8 @@ impl App {
             command_sel: 0,
             learn_sel: 0,
             settings_sel: 0,
+            onboarding_step: 0,
+            onboarding_sel: 0,
             theme_choices,
             theme_query: String::new(),
             bloat,
@@ -1836,6 +1870,13 @@ impl App {
 
     fn set_status(&mut self, msg: String) {
         self.status_msg = Some((msg, Instant::now()));
+        self.dirty = true;
+    }
+
+    fn start_onboarding(&mut self) {
+        self.onboarding_step = 0;
+        self.onboarding_sel = 0;
+        self.popup = Popup::Onboarding;
         self.dirty = true;
     }
 
@@ -3479,10 +3520,14 @@ pub fn run() -> io::Result<()> {
         return Ok(());
     }
     let cfg = load_config();
+    let show_onboarding = !cfg.onboarding.completed;
     let intro_config = cfg.intro.clone();
     let mut launch_intro =
         intro::should_run(&intro_config).then(|| intro::Session::new(&intro_config));
     let mut app = App::new(cfg);
+    if show_onboarding {
+        app.start_onboarding();
+    }
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -3960,6 +4005,33 @@ mod tests {
         let agents = rendered_text(&app, 80, 24);
         assert!(agents.contains("found | filter:"));
         assert!(agents.contains("PREPARED"));
+    }
+
+    #[test]
+    fn walkthrough_stays_short_and_usable_in_normal_and_small_terminals() {
+        let mut config = Config::default();
+        config.bloat.scan_project = false;
+        let mut app = App::new(config);
+        app.start_onboarding();
+
+        let welcome = rendered_text(&app, 80, 24);
+        assert!(welcome.contains("QUICK WALKTHROUGH"));
+        assert!(welcome.contains("OPEN-SOURCE ALPHA"));
+        assert!(welcome.contains("ESC OR S SKIPS"));
+        assert!(welcome.contains("No account. No usage telemetry."));
+
+        app.onboarding_step = 1;
+        let choices = rendered_text(&app, 64, 16);
+        assert!(choices.contains("What do you want to do first?"));
+        assert!(choices.contains("Find and run a model"));
+        assert!(choices.contains("Watch model performance"));
+
+        app.onboarding_step = 2;
+        app.onboarding_sel = 2;
+        let ready = rendered_text(&app, 64, 16);
+        assert!(ready.contains("You are ready."));
+        assert!(ready.contains("Measure"));
+        assert!(ready.contains("Enter open Measure"));
     }
 
     #[test]
